@@ -1,10 +1,11 @@
-import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import {
   Button,
   Card,
   Col,
   Descriptions,
   Form,
+  Image,
   Input,
   InputNumber,
   Modal,
@@ -15,16 +16,20 @@ import {
   Table,
   Tag,
   Timeline,
+  Upload,
   message,
 } from 'antd'
-import { useEffect, useState } from 'react'
+import type { UploadProps } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, unwrap } from '@/services/api'
-import { openPrintPage } from '@/utils/print'
+import { assetUrl } from '@/utils/media'
+import { openPrintPage, downloadPdf } from '@/utils/print'
 import type { PartWithStock } from '@/types/inventory'
 import type { ServiceItem, WorkOrderDetail } from '@/types/workOrder'
+import type { WorkBay } from '@/types/workBay'
 import type { UserListItem } from '@/types/api'
-import { WO_STATUS_MAP, WO_STEPS } from '@/types/workOrder'
+import { ITEM_STATUS_LABELS, PAYMENT_METHODS, WO_STATUS_MAP, WO_STEPS } from '@/types/workOrder'
 
 const NEXT_ACTIONS: Record<string, { to: string; label: string }[]> = {
   pending_quote: [{ to: 'pending_confirm', label: '提交报价' }],
@@ -50,11 +55,23 @@ export default function WorkOrderDetailPage() {
   const [inspectModalOpen, setInspectModalOpen] = useState(false)
   const [inspectItems, setInspectItems] = useState<Array<{ name: string; status: string; note: string }>>([])
   const [valuables, setValuables] = useState('')
+  const [inspectPhotos, setInspectPhotos] = useState<string[]>([])
+  const [constructionPhotos, setConstructionPhotos] = useState<string[]>([])
+  const [isAddonItem, setIsAddonItem] = useState(false)
   const [technicians, setTechnicians] = useState<UserListItem[]>([])
+  const [workBays, setWorkBays] = useState<WorkBay[]>([])
   const [itemForm] = Form.useForm()
   const [partForm] = Form.useForm()
   const [settleForm] = Form.useForm()
   const [assignForm] = Form.useForm()
+
+  const discountAmount = Form.useWatch('discount_amount', settleForm) ?? 0
+  const roundDownAmount = Form.useWatch('round_down_amount', settleForm) ?? 0
+  const settlePayable = useMemo(() => {
+    if (!order) return 0
+    const payable = order.total_amount - Number(discountAmount || 0) - Number(roundDownAmount || 0)
+    return Math.max(0, Number(payable.toFixed(2)))
+  }, [order, discountAmount, roundDownAmount])
 
   const fetchDetail = async () => {
     setLoading(true)
@@ -80,7 +97,19 @@ export default function WorkOrderDetailPage() {
       const users = unwrap<UserListItem[]>(res)
       setTechnicians(users.filter((u) => u.status === 1 && ['technician', 'manager', 'owner'].includes(u.role)))
     })
+    api.get('/api/v1/work-bays').then((res) => {
+      setWorkBays(unwrap<WorkBay[]>(res))
+    })
   }, [id])
+
+  useEffect(() => {
+    if (!id || !order) return
+    if (!['in_progress', 'pending_qc', 'pending_settle', 'completed'].includes(order.status)) return
+    api.get(`/api/v1/work-orders/${id}/inspection`, { params: { type: 'construction' } }).then((res) => {
+      const data = unwrap<{ photos?: string[] }>(res)
+      setConstructionPhotos(data.photos || [])
+    }).catch(() => {})
+  }, [id, order?.status])
 
   const transition = async (toStatus: string) => {
     try {
@@ -95,17 +124,23 @@ export default function WorkOrderDetailPage() {
   const addItem = async () => {
     const values = await itemForm.validateFields()
     const service = serviceItems.find((s) => s.id === values.service_item_id)
-    await api.post(`/api/v1/work-orders/${id}/items`, {
-      service_item_id: values.service_item_id,
-      name: service?.name || values.name,
-      quantity: values.quantity,
-      unit_price: values.unit_price,
-      discount: values.discount ?? 100,
-    })
-    message.success('已添加项目')
-    setItemModalOpen(false)
-    itemForm.resetFields()
-    fetchDetail()
+    try {
+      await api.post(`/api/v1/work-orders/${id}/items`, {
+        service_item_id: values.service_item_id,
+        name: service?.name || values.name,
+        quantity: values.quantity,
+        unit_price: values.unit_price,
+        discount: values.discount ?? 100,
+        type: isAddonItem ? 'addon' : 'normal',
+      })
+      message.success(isAddonItem ? '增项已添加，待客户确认' : '已添加项目')
+      setItemModalOpen(false)
+      setIsAddonItem(false)
+      itemForm.resetFields()
+      fetchDetail()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '添加失败')
+    }
   }
 
   const addPart = async () => {
@@ -145,18 +180,82 @@ export default function WorkOrderDetailPage() {
 
   const settle = async () => {
     const values = await settleForm.validateFields()
-    const discount = values.discount_amount || 0
-    const payable = Number((order!.total_amount - discount).toFixed(2))
+    const payments = (values.payments || []).filter((p: { amount?: number }) => Number(p.amount) > 0)
+    if (payments.length === 0) {
+      message.error('请至少填写一种支付方式')
+      return
+    }
+    const paidTotal = Number(
+      payments.reduce((sum: number, p: { amount: number }) => sum + Number(p.amount || 0), 0).toFixed(2),
+    )
+    if (paidTotal !== settlePayable) {
+      message.error(`支付合计 ¥${paidTotal} 与应付 ¥${settlePayable} 不一致`)
+      return
+    }
     try {
       await api.post(`/api/v1/work-orders/${id}/settle`, {
-        discount_amount: discount,
-        payments: [{ method: values.method, amount: payable }],
+        discount_amount: values.discount_amount || 0,
+        round_down_amount: values.round_down_amount || 0,
+        payments,
       })
       message.success('结算成功')
       setSettleModalOpen(false)
       fetchDetail()
     } catch (error) {
       message.error(error instanceof Error ? error.message : '结算失败')
+    }
+  }
+
+  const applyRoundDown = () => {
+    const discount = settleForm.getFieldValue('discount_amount') || 0
+    const raw = (order?.total_amount || 0) - discount
+    const payable = Math.floor(raw)
+    const roundDown = Number((raw - payable).toFixed(2))
+    settleForm.setFieldsValue({ round_down_amount: roundDown })
+  }
+
+  const openSettleModal = () => {
+    settleForm.setFieldsValue({
+      discount_amount: 0,
+      round_down_amount: 0,
+      payments: [{ method: 'cash', amount: order!.payable_amount }],
+    })
+    setSettleModalOpen(true)
+  }
+
+  const confirmAddon = async (itemId: number) => {
+    try {
+      await api.post(`/api/v1/work-orders/${id}/items/${itemId}/confirm`)
+      message.success('增项已确认')
+      fetchDetail()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '确认失败')
+    }
+  }
+
+  const updateItemStatus = async (itemId: number, status: string) => {
+    try {
+      await api.put(`/api/v1/work-orders/${id}/items/${itemId}/status`, { status })
+      message.success('项目状态已更新')
+      fetchDetail()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '更新失败')
+    }
+  }
+
+  const uploadPhoto: UploadProps['customRequest'] = async (options) => {
+    const formData = new FormData()
+    formData.append('file', options.file as File)
+    try {
+      const res = await api.post('/api/v1/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const { url } = unwrap<{ url: string }>(res)
+      setInspectPhotos((prev) => [...prev, url])
+      options.onSuccess?.(url)
+    } catch (error) {
+      options.onError?.(error as Error)
+      message.error(error instanceof Error ? error.message : '上传失败')
     }
   }
 
@@ -183,9 +282,10 @@ export default function WorkOrderDetailPage() {
   const loadInspection = async () => {
     try {
       const res = await api.get(`/api/v1/work-orders/${id}/inspection`)
-      const data = unwrap<{ items?: Array<{ name: string; status: string; note: string }>; valuables?: string }>(res)
+      const data = unwrap<{ items?: Array<{ name: string; status: string; note: string }>; valuables?: string; photos?: string[] }>(res)
       setInspectItems(data.items || [])
       setValuables(data.valuables || '')
+      setInspectPhotos(data.photos || [])
       setInspectModalOpen(true)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载预检失败')
@@ -197,7 +297,7 @@ export default function WorkOrderDetailPage() {
       await api.post(`/api/v1/work-orders/${id}/inspection`, {
         type: 'pre_check',
         items: inspectItems,
-        photos: [],
+        photos: inspectPhotos,
         valuables,
         finish,
       })
@@ -214,6 +314,49 @@ export default function WorkOrderDetailPage() {
       await openPrintPage(`/api/v1/work-orders/${id}/print?type=${type}`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '打印失败')
+    }
+  }
+
+  const handlePrintPdf = async (type: string) => {
+    const titles: Record<string, string> = { checkin: '接车单', quote: '报价单', settle: '结算单' }
+    try {
+      await downloadPdf(
+        `/api/v1/work-orders/${id}/print/pdf?type=${type}`,
+        `${order!.order_no}_${titles[type] || '单据'}.pdf`,
+      )
+      message.success('PDF 已下载')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'PDF 导出失败')
+    }
+  }
+
+  const saveConstructionPhotos = async () => {
+    try {
+      await api.post(`/api/v1/work-orders/${id}/inspection`, {
+        type: 'construction',
+        items: [],
+        photos: constructionPhotos,
+        finish: false,
+      })
+      message.success('施工照片已保存')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存失败')
+    }
+  }
+
+  const uploadConstructionPhoto: UploadProps['customRequest'] = async (options) => {
+    const formData = new FormData()
+    formData.append('file', options.file as File)
+    try {
+      const res = await api.post('/api/v1/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const { url } = unwrap<{ url: string }>(res)
+      setConstructionPhotos((prev) => [...prev, url])
+      options.onSuccess?.(url)
+    } catch (error) {
+      options.onError?.(error as Error)
+      message.error(error instanceof Error ? error.message : '上传失败')
     }
   }
 
@@ -254,6 +397,7 @@ export default function WorkOrderDetailPage() {
           <Descriptions.Item label="进店里程">{order.mileage_in ? `${order.mileage_in} km` : '-'}</Descriptions.Item>
           <Descriptions.Item label="油量">{order.fuel_level || '-'}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{order.created_at}</Descriptions.Item>
+          <Descriptions.Item label="施工工位">{order.work_bay?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="客户诉求" span={3}>{order.customer_request || '-'}</Descriptions.Item>
         </Descriptions>
 
@@ -267,20 +411,27 @@ export default function WorkOrderDetailPage() {
             </Button>
           ))}
           <Button onClick={() => handlePrint('checkin')}>打印接车单</Button>
+          <Button onClick={() => handlePrintPdf('checkin')}>PDF接车单</Button>
           <Button onClick={() => handlePrint('quote')}>打印报价单</Button>
+          <Button onClick={() => handlePrintPdf('quote')}>PDF报价单</Button>
           {order.status === 'completed' && (
-            <Button onClick={() => handlePrint('settle')}>打印结算单</Button>
+            <>
+              <Button onClick={() => handlePrint('settle')}>打印结算单</Button>
+              <Button onClick={() => handlePrintPdf('settle')}>PDF结算单</Button>
+            </>
           )}
           {order.status === 'pending_settle' && (
-            <Button type="primary" onClick={() => {
-              settleForm.setFieldsValue({ discount_amount: 0, method: 'cash' })
-              setSettleModalOpen(true)
-            }}>
+            <Button type="primary" onClick={openSettleModal}>
               收银结算
             </Button>
           )}
           {['pending_confirm', 'in_progress', 'pending_qc'].includes(order.status) && order.items.length > 0 && (
-            <Button onClick={() => setAssignModalOpen(true)}>派工</Button>
+            <Button onClick={() => {
+              assignForm.setFieldsValue({ work_bay_id: order.work_bay_id })
+              setAssignModalOpen(true)
+            }}>
+              派工
+            </Button>
           )}
           {!['completed', 'cancelled'].includes(order.status) && (
             <Button danger onClick={() => transition('cancelled')}>取消工单</Button>
@@ -294,9 +445,25 @@ export default function WorkOrderDetailPage() {
             title="服务项目"
             extra={
               canEditItems && (
-                <Button size="small" icon={<PlusOutlined />} onClick={() => setItemModalOpen(true)}>
-                  添加项目
-                </Button>
+                <Space>
+                  {order.status === 'in_progress' && (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setIsAddonItem(true)
+                        setItemModalOpen(true)
+                      }}
+                    >
+                      添加增项
+                    </Button>
+                  )}
+                  <Button size="small" icon={<PlusOutlined />} onClick={() => {
+                    setIsAddonItem(false)
+                    setItemModalOpen(true)
+                  }}>
+                    添加项目
+                  </Button>
+                </Space>
               )
             }
             style={{ marginBottom: 16 }}
@@ -306,12 +473,59 @@ export default function WorkOrderDetailPage() {
               pagination={false}
               dataSource={order.items}
               columns={[
-                { title: '项目', dataIndex: 'name' },
+                {
+                  title: '项目',
+                  dataIndex: 'name',
+                  render: (name: string, record) => (
+                    <Space>
+                      <span>{name}</span>
+                      {record.type === 'addon' && <Tag color="orange">增项</Tag>}
+                    </Space>
+                  ),
+                },
                 { title: '数量', dataIndex: 'quantity' },
                 { title: '单价', dataIndex: 'unit_price', render: (v) => `¥${v}` },
                 { title: '折扣', dataIndex: 'discount', render: (v) => `${v}%` },
                 { title: '小计', dataIndex: 'amount', render: (v) => `¥${v}` },
                 { title: '技师', dataIndex: 'technician_id', render: (v) => technicianName(v) },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  render: (status: string) => ITEM_STATUS_LABELS[status] || status,
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  render: (_, record) => (
+                    <Space size="small">
+                      {record.status === 'pending_confirm' && (
+                        <Button type="link" size="small" onClick={() => confirmAddon(record.id)}>
+                          确认增项
+                        </Button>
+                      )}
+                      {record.status === 'pending' && ['in_progress', 'pending_qc'].includes(order.status) && (
+                        <Button type="link" size="small" onClick={() => updateItemStatus(record.id, 'in_progress')}>
+                          开工
+                        </Button>
+                      )}
+                      {record.status === 'in_progress' && (
+                        <>
+                          <Button type="link" size="small" onClick={() => updateItemStatus(record.id, 'paused')}>
+                            暂停
+                          </Button>
+                          <Button type="link" size="small" onClick={() => updateItemStatus(record.id, 'completed')}>
+                            完工
+                          </Button>
+                        </>
+                      )}
+                      {record.status === 'paused' && (
+                        <Button type="link" size="small" onClick={() => updateItemStatus(record.id, 'in_progress')}>
+                          继续
+                        </Button>
+                      )}
+                    </Space>
+                  ),
+                },
               ]}
             />
           </Card>
@@ -346,6 +560,49 @@ export default function WorkOrderDetailPage() {
               ]}
             />
           </Card>
+
+          {['in_progress', 'pending_qc', 'pending_settle', 'completed'].includes(order.status) && (
+            <Card
+              title="施工照片"
+              extra={
+                ['in_progress', 'pending_qc'].includes(order.status) && (
+                  <Button size="small" type="primary" onClick={saveConstructionPhotos}>
+                    保存照片
+                  </Button>
+                )
+              }
+              style={{ marginBottom: 16 }}
+            >
+              <Upload
+                listType="picture-card"
+                accept="image/*"
+                customRequest={uploadConstructionPhoto}
+                disabled={!['in_progress', 'pending_qc'].includes(order.status)}
+                fileList={constructionPhotos.map((url, index) => ({
+                  uid: String(index),
+                  name: `施工-${index}`,
+                  status: 'done' as const,
+                  url: assetUrl(url),
+                }))}
+                onRemove={(file) => {
+                  const index = constructionPhotos.findIndex((url) => assetUrl(url) === file.url || url === file.url)
+                  if (index >= 0) {
+                    setConstructionPhotos((prev) => prev.filter((_, i) => i !== index))
+                  }
+                }}
+              >
+                {['in_progress', 'pending_qc'].includes(order.status) && constructionPhotos.length < 12 && (
+                  <div>
+                    <UploadOutlined />
+                    <div style={{ marginTop: 8 }}>上传</div>
+                  </div>
+                )}
+              </Upload>
+              {constructionPhotos.length === 0 && (
+                <div style={{ color: '#999' }}>暂无施工照片</div>
+              )}
+            </Card>
+          )}
         </Col>
 
         <Col span={8}>
@@ -380,7 +637,16 @@ export default function WorkOrderDetailPage() {
         </Col>
       </Row>
 
-      <Modal title="添加服务项目" open={itemModalOpen} onOk={addItem} onCancel={() => setItemModalOpen(false)} destroyOnClose>
+      <Modal
+        title={isAddonItem ? '添加增项' : '添加服务项目'}
+        open={itemModalOpen}
+        onOk={addItem}
+        onCancel={() => {
+          setItemModalOpen(false)
+          setIsAddonItem(false)
+        }}
+        destroyOnClose
+      >
         <Form form={itemForm} layout="vertical" initialValues={{ quantity: 1, discount: 100 }}>
           <Form.Item name="service_item_id" label="从项目库选择">
             <Select
@@ -431,24 +697,59 @@ export default function WorkOrderDetailPage() {
         </Form>
       </Modal>
 
-      <Modal title="收银结算" open={settleModalOpen} onOk={settle} onCancel={() => setSettleModalOpen(false)} destroyOnClose>
+      <Modal title="收银结算" open={settleModalOpen} onOk={settle} onCancel={() => setSettleModalOpen(false)} destroyOnClose width={560}>
         <Form form={settleForm} layout="vertical">
+          <Form.Item label="合计金额">
+            <Input value={`¥${order.total_amount.toFixed(2)}`} disabled />
+          </Form.Item>
+          <Form.Item name="discount_amount" label="整单折扣(元)" initialValue={0}>
+            <InputNumber min={0} max={order.total_amount} precision={2} style={{ width: '100%' }} />
+          </Form.Item>
+          <Space style={{ marginBottom: 16 }}>
+            <Form.Item name="round_down_amount" label="抹零(元)" initialValue={0} style={{ marginBottom: 0, flex: 1 }}>
+              <InputNumber min={0} precision={2} style={{ width: 200 }} />
+            </Form.Item>
+            <Button onClick={applyRoundDown} style={{ marginTop: 30 }}>
+              抹零到元
+            </Button>
+          </Space>
           <Form.Item label="应付金额">
-            <Input value={`¥${order.payable_amount.toFixed(2)}`} disabled />
+            <Input value={`¥${settlePayable.toFixed(2)}`} disabled style={{ fontWeight: 600, color: '#1677ff' }} />
           </Form.Item>
-          <Form.Item name="discount_amount" label="整单折扣(元)">
-            <InputNumber min={0} max={order.payable_amount} precision={2} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="method" label="支付方式" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'cash', label: '现金' },
-                { value: 'wechat', label: '微信' },
-                { value: 'alipay', label: '支付宝' },
-                { value: 'bank', label: '银行卡' },
-              ]}
-            />
-          </Form.Item>
+          <Form.List name="payments" initialValue={[{ method: 'cash', amount: order.payable_amount }]}>
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Space key={key} align="baseline" style={{ display: 'flex', marginBottom: 8 }}>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'method']}
+                      rules={[{ required: true, message: '请选择支付方式' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select style={{ width: 120 }} options={PAYMENT_METHODS} />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'amount']}
+                      rules={[{ required: true, message: '请输入金额' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <InputNumber min={0.01} precision={2} placeholder="金额" style={{ width: 140 }} />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <Button type="link" danger onClick={() => remove(name)}>
+                        删除
+                      </Button>
+                    )}
+                  </Space>
+                ))}
+                <Button type="dashed" onClick={() => add({ method: 'wechat', amount: undefined })} block icon={<PlusOutlined />}>
+                  添加支付方式
+                </Button>
+              </>
+            )}
+          </Form.List>
         </Form>
       </Modal>
 
@@ -466,6 +767,19 @@ export default function WorkOrderDetailPage() {
               allowClear
               placeholder="默认全部项目"
               options={order.items.map((item) => ({ value: item.id, label: item.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="work_bay_id" label="施工工位">
+            <Select
+              allowClear
+              placeholder="选择工位（可选）"
+              options={workBays
+                .filter((b) => b.status !== 0)
+                .map((b) => ({
+                  value: b.id,
+                  label: `${b.name}${b.status === 2 ? ' (占用)' : ''}`,
+                  disabled: b.status === 2 && b.id !== order.work_bay_id,
+                }))}
             />
           </Form.Item>
         </Form>
@@ -527,6 +841,39 @@ export default function WorkOrderDetailPage() {
         <Form layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item label="贵重物品清单">
             <Input.TextArea rows={2} value={valuables} onChange={(e) => setValuables(e.target.value)} />
+          </Form.Item>
+          <Form.Item label="环检照片">
+            <Upload
+              listType="picture-card"
+              accept="image/*"
+              customRequest={uploadPhoto}
+              fileList={inspectPhotos.map((url, index) => ({
+                uid: String(index),
+                name: `photo-${index}`,
+                status: 'done' as const,
+                url: assetUrl(url),
+              }))}
+              onRemove={(file) => {
+                const index = inspectPhotos.findIndex((url) => assetUrl(url) === file.url || url === file.url)
+                if (index >= 0) {
+                  setInspectPhotos((prev) => prev.filter((_, i) => i !== index))
+                }
+              }}
+            >
+              {inspectPhotos.length < 9 && (
+                <div>
+                  <UploadOutlined />
+                  <div style={{ marginTop: 8 }}>上传</div>
+                </div>
+              )}
+            </Upload>
+            {inspectPhotos.length > 0 && (
+              <Image.PreviewGroup>
+                {inspectPhotos.map((url) => (
+                  <Image key={url} src={assetUrl(url)} width={0} height={0} style={{ display: 'none' }} />
+                ))}
+              </Image.PreviewGroup>
+            )}
           </Form.Item>
         </Form>
       </Modal>

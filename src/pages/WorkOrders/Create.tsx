@@ -1,5 +1,6 @@
-import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, message } from 'antd'
+import { ArrowLeftOutlined, CameraOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Upload, message } from 'antd'
+import type { UploadProps } from 'antd'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, unwrap } from '@/services/api'
@@ -10,6 +11,7 @@ export default function WorkOrderCreatePage() {
   const [form] = Form.useForm()
   const [vehicleForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [ocrLoading, setOcrLoading] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [customerId, setCustomerId] = useState<number | null>(null)
@@ -45,6 +47,26 @@ export default function WorkOrderCreatePage() {
       form.setFieldValue('vehicle_id', vehicle.id)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '添加失败')
+    }
+  }
+
+  const recognizePlate: UploadProps['customRequest'] = async (options) => {
+    setOcrLoading(true)
+    const formData = new FormData()
+    formData.append('file', options.file as File)
+    try {
+      const res = await api.post('/api/v1/ocr/plate', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const { plate_number } = unwrap<{ plate_number: string }>(res)
+      vehicleForm.setFieldValue('plate_number', plate_number)
+      message.success(`识别成功：${plate_number}`)
+      options.onSuccess?.(plate_number)
+    } catch (error) {
+      options.onError?.(error as Error)
+      message.error(error instanceof Error ? error.message : '识别失败，请手动输入')
+    } finally {
+      setOcrLoading(false)
     }
   }
 
@@ -134,6 +156,18 @@ export default function WorkOrderCreatePage() {
 
       <Modal title="新建车辆" open={vehicleOpen} onOk={addVehicle} onCancel={() => setVehicleOpen(false)} destroyOnClose>
         <Form form={vehicleForm} layout="vertical">
+          <Form.Item label="车牌识别">
+            <Upload
+              accept="image/*"
+              showUploadList={false}
+              customRequest={recognizePlate}
+              disabled={ocrLoading}
+            >
+              <Button icon={<CameraOutlined />} loading={ocrLoading}>
+                拍照/上传识别车牌
+              </Button>
+            </Upload>
+          </Form.Item>
           <Form.Item name="plate_number" label="车牌号" rules={[{ required: true }]}>
             <Input placeholder="京A12345" />
           </Form.Item>

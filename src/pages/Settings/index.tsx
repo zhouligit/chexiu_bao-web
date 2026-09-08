@@ -1,9 +1,11 @@
 import { PlusOutlined } from '@ant-design/icons'
-import { Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag, message } from 'antd'
+import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, message } from 'antd'
 import { useEffect, useState } from 'react'
 import type { ColumnsType } from 'antd/es/table'
 import { api, unwrap } from '@/services/api'
 import type { StoreInfo, UserListItem } from '@/types/api'
+import type { WorkBay } from '@/types/workBay'
+import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
 
 const ROLE_OPTIONS = [
   { value: 'manager', label: '店长' },
@@ -178,12 +180,142 @@ function UserSettings() {
   )
 }
 
+function WorkBaySettings() {
+  const [loading, setLoading] = useState(false)
+  const [bays, setBays] = useState<WorkBay[]>([])
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<WorkBay | null>(null)
+  const [form] = Form.useForm()
+
+  const fetchBays = async () => {
+    setLoading(true)
+    try {
+      const res = await api.get('/api/v1/work-bays')
+      setBays(unwrap<WorkBay[]>(res))
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchBays()
+  }, [])
+
+  const openCreate = () => {
+    setEditing(null)
+    form.resetFields()
+    form.setFieldsValue({ type: 'repair', status: 1, sort_order: bays.length })
+    setOpen(true)
+  }
+
+  const openEdit = (bay: WorkBay) => {
+    setEditing(bay)
+    form.setFieldsValue(bay)
+    setOpen(true)
+  }
+
+  const handleSave = async () => {
+    const values = await form.validateFields()
+    try {
+      if (editing) {
+        await api.put(`/api/v1/work-bays/${editing.id}`, values)
+        message.success('工位已更新')
+      } else {
+        await api.post('/api/v1/work-bays', values)
+        message.success('工位已创建')
+      }
+      setOpen(false)
+      fetchBays()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存失败')
+    }
+  }
+
+  const handleDelete = async (bay: WorkBay) => {
+    Modal.confirm({
+      title: `删除工位「${bay.name}」？`,
+      onOk: async () => {
+        await api.delete(`/api/v1/work-bays/${bay.id}`)
+        message.success('已删除')
+        fetchBays()
+      },
+    })
+  }
+
+  const columns: ColumnsType<WorkBay> = [
+    { title: '名称', dataIndex: 'name' },
+    {
+      title: '类型',
+      dataIndex: 'type',
+      render: (v) => WORK_BAY_TYPE_OPTIONS.find((o) => o.value === v)?.label || v || '-',
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      render: (v: number) => (
+        <Tag color={v === 1 ? 'success' : v === 2 ? 'processing' : 'default'}>
+          {WORK_BAY_STATUS_LABELS[v] || v}
+        </Tag>
+      ),
+    },
+    { title: '排序', dataIndex: 'sort_order' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, record) => (
+        <Space>
+          <Button type="link" onClick={() => openEdit(record)}>编辑</Button>
+          <Button type="link" danger onClick={() => handleDelete(record)}>删除</Button>
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <Card
+      title="工位管理"
+      extra={
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          新增工位
+        </Button>
+      }
+    >
+      <Table rowKey="id" loading={loading} columns={columns} dataSource={bays} pagination={false} />
+      <Modal
+        title={editing ? '编辑工位' : '新增工位'}
+        open={open}
+        onOk={handleSave}
+        onCancel={() => setOpen(false)}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="工位名称" rules={[{ required: true }]}>
+            <Input placeholder="如：1号工位" />
+          </Form.Item>
+          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+            <Select options={WORK_BAY_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+            <Select options={WORK_BAY_STATUS_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="sort_order" label="排序">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   return (
     <Tabs
       items={[
         { key: 'store', label: '门店信息', children: <StoreSettings /> },
         { key: 'users', label: '员工管理', children: <UserSettings /> },
+        { key: 'work-bays', label: '工位管理', children: <WorkBaySettings /> },
       ]}
     />
   )

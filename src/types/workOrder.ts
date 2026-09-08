@@ -58,6 +58,8 @@ export interface WorkOrderDetail {
   discount_amount: number
   payable_amount: number
   paid_amount: number
+  work_bay_id?: number
+  work_bay?: { id: number; name: string }
   items: WorkOrderItem[]
   parts: WorkOrderPart[]
   logs: WorkOrderLog[]
@@ -96,4 +98,20 @@ export const WO_STEPS = [
   'pending_qc',
   'pending_settle',
   'completed',
+]
+
+export const ITEM_STATUS_LABELS: Record<string, string> = {
+  pending_confirm: '待确认',
+  pending: '待施工',
+  in_progress: '施工中',
+  paused: '已暂停',
+  completed: '已完成',
+}
+
+export const PAYMENT_METHODS = [
+  { value: 'cash', label: '现金' },
+  { value: 'wechat', label: '微信' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'bank', label: '银行卡' },
+  { value: 'card', label: '储值卡' },
 ]
