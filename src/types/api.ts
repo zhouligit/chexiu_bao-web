@@ -26,6 +26,30 @@ export interface LoginResult {
   user: UserInfo
 }
 
+export interface StoreInfo {
+  id: number
+  name: string
+  code?: string
+  phone?: string
+  address?: string
+  logo_url?: string
+  status: number
+  plan: string
+  created_at: string
+}
+
+export interface UserListItem {
+  id: number
+  store_id: number
+  username: string
+  name: string
+  phone?: string
+  role: string
+  status: number
+  last_login_at?: string
+  created_at: string
+}
+
 export interface Customer {
   id: number
   store_id: number

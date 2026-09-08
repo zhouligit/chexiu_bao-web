@@ -21,6 +21,7 @@ export interface WorkOrderItem {
   amount: number
   type: string
   status: string
+  technician_id?: number
 }
 
 export interface WorkOrderPart {
@@ -68,9 +69,12 @@ export interface WorkOrderDetail {
 export interface ServiceItem {
   id: number
   name: string
+  code?: string
   price: number
   unit: string
   labor_hours?: number
+  description?: string
+  status?: number
 }
 
 export const WO_STATUS_MAP: Record<string, { label: string; color: string }> = {

@@ -20,12 +20,13 @@ import {
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, unwrap } from '@/services/api'
+import { openPrintPage } from '@/utils/print'
 import type { PartWithStock } from '@/types/inventory'
 import type { ServiceItem, WorkOrderDetail } from '@/types/workOrder'
+import type { UserListItem } from '@/types/api'
 import { WO_STATUS_MAP, WO_STEPS } from '@/types/workOrder'
 
 const NEXT_ACTIONS: Record<string, { to: string; label: string }[]> = {
-  pending_inspection: [{ to: 'pending_quote', label: '完成预检' }],
   pending_quote: [{ to: 'pending_confirm', label: '提交报价' }],
   pending_confirm: [{ to: 'in_progress', label: '客户确认' }],
   in_progress: [{ to: 'pending_qc', label: '施工完成' }],
@@ -45,9 +46,15 @@ export default function WorkOrderDetailPage() {
   const [itemModalOpen, setItemModalOpen] = useState(false)
   const [partModalOpen, setPartModalOpen] = useState(false)
   const [settleModalOpen, setSettleModalOpen] = useState(false)
+  const [assignModalOpen, setAssignModalOpen] = useState(false)
+  const [inspectModalOpen, setInspectModalOpen] = useState(false)
+  const [inspectItems, setInspectItems] = useState<Array<{ name: string; status: string; note: string }>>([])
+  const [valuables, setValuables] = useState('')
+  const [technicians, setTechnicians] = useState<UserListItem[]>([])
   const [itemForm] = Form.useForm()
   const [partForm] = Form.useForm()
   const [settleForm] = Form.useForm()
+  const [assignForm] = Form.useForm()
 
   const fetchDetail = async () => {
     setLoading(true)
@@ -68,6 +75,10 @@ export default function WorkOrderDetailPage() {
     })
     api.get('/api/v1/parts').then((res) => {
       setStockParts(unwrap<PartWithStock[]>(res))
+    })
+    api.get('/api/v1/users').then((res) => {
+      const users = unwrap<UserListItem[]>(res)
+      setTechnicians(users.filter((u) => u.status === 1 && ['technician', 'manager', 'owner'].includes(u.role)))
     })
   }, [id])
 
@@ -156,6 +167,61 @@ export default function WorkOrderDetailPage() {
     }
   }
 
+  const assignTechnician = async () => {
+    const values = await assignForm.validateFields()
+    try {
+      await api.post(`/api/v1/work-orders/${id}/assign`, values)
+      message.success('派工成功')
+      setAssignModalOpen(false)
+      assignForm.resetFields()
+      fetchDetail()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '派工失败')
+    }
+  }
+
+  const loadInspection = async () => {
+    try {
+      const res = await api.get(`/api/v1/work-orders/${id}/inspection`)
+      const data = unwrap<{ items?: Array<{ name: string; status: string; note: string }>; valuables?: string }>(res)
+      setInspectItems(data.items || [])
+      setValuables(data.valuables || '')
+      setInspectModalOpen(true)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载预检失败')
+    }
+  }
+
+  const submitInspection = async (finish: boolean) => {
+    try {
+      await api.post(`/api/v1/work-orders/${id}/inspection`, {
+        type: 'pre_check',
+        items: inspectItems,
+        photos: [],
+        valuables,
+        finish,
+      })
+      message.success(finish ? '预检完成' : '预检已保存')
+      setInspectModalOpen(false)
+      fetchDetail()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '提交失败')
+    }
+  }
+
+  const handlePrint = async (type: string) => {
+    try {
+      await openPrintPage(`/api/v1/work-orders/${id}/print?type=${type}`)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '打印失败')
+    }
+  }
+
+  const technicianName = (techId?: number) => {
+    if (!techId) return '-'
+    return technicians.find((t) => t.id === techId)?.name || `#${techId}`
+  }
+
   if (!order) {
     return <Card loading={loading}>加载中...</Card>
   }
@@ -192,11 +258,19 @@ export default function WorkOrderDetailPage() {
         </Descriptions>
 
         <Space style={{ marginTop: 16 }} wrap>
+          {order.status === 'pending_inspection' && (
+            <Button type="primary" onClick={loadInspection}>填写预检</Button>
+          )}
           {actions.map((a) => (
             <Button key={a.to} type="primary" onClick={() => transition(a.to)}>
               {a.label}
             </Button>
           ))}
+          <Button onClick={() => handlePrint('checkin')}>打印接车单</Button>
+          <Button onClick={() => handlePrint('quote')}>打印报价单</Button>
+          {order.status === 'completed' && (
+            <Button onClick={() => handlePrint('settle')}>打印结算单</Button>
+          )}
           {order.status === 'pending_settle' && (
             <Button type="primary" onClick={() => {
               settleForm.setFieldsValue({ discount_amount: 0, method: 'cash' })
@@ -204,6 +278,9 @@ export default function WorkOrderDetailPage() {
             }}>
               收银结算
             </Button>
+          )}
+          {['pending_confirm', 'in_progress', 'pending_qc'].includes(order.status) && order.items.length > 0 && (
+            <Button onClick={() => setAssignModalOpen(true)}>派工</Button>
           )}
           {!['completed', 'cancelled'].includes(order.status) && (
             <Button danger onClick={() => transition('cancelled')}>取消工单</Button>
@@ -234,6 +311,7 @@ export default function WorkOrderDetailPage() {
                 { title: '单价', dataIndex: 'unit_price', render: (v) => `¥${v}` },
                 { title: '折扣', dataIndex: 'discount', render: (v) => `${v}%` },
                 { title: '小计', dataIndex: 'amount', render: (v) => `¥${v}` },
+                { title: '技师', dataIndex: 'technician_id', render: (v) => technicianName(v) },
               ]}
             />
           </Card>
@@ -370,6 +448,85 @@ export default function WorkOrderDetailPage() {
                 { value: 'bank', label: '银行卡' },
               ]}
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title="派工" open={assignModalOpen} onOk={assignTechnician} onCancel={() => setAssignModalOpen(false)} destroyOnClose>
+        <Form form={assignForm} layout="vertical">
+          <Form.Item name="technician_id" label="技师" rules={[{ required: true, message: '请选择技师' }]}>
+            <Select
+              placeholder="选择技师"
+              options={technicians.map((t) => ({ value: t.id, label: `${t.name} (${t.role})` }))}
+            />
+          </Form.Item>
+          <Form.Item name="item_ids" label="派工项目（不选则全部）">
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="默认全部项目"
+              options={order.items.map((item) => ({ value: item.id, label: item.name }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="环检预检"
+        open={inspectModalOpen}
+        onCancel={() => setInspectModalOpen(false)}
+        width={720}
+        footer={[
+          <Button key="save" onClick={() => submitInspection(false)}>保存</Button>,
+          <Button key="finish" type="primary" onClick={() => submitInspection(true)}>完成预检</Button>,
+        ]}
+      >
+        <Table
+          rowKey="name"
+          pagination={false}
+          size="small"
+          dataSource={inspectItems}
+          columns={[
+            { title: '检查项', dataIndex: 'name', width: 140 },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              render: (value: string, _, index) => (
+                <Select
+                  value={value}
+                  style={{ width: 120 }}
+                  options={[
+                    { value: 'normal', label: '正常' },
+                    { value: 'abnormal', label: '异常' },
+                    { value: 'advise', label: '建议维修' },
+                  ]}
+                  onChange={(v) => {
+                    const next = [...inspectItems]
+                    next[index] = { ...next[index], status: v }
+                    setInspectItems(next)
+                  }}
+                />
+              ),
+            },
+            {
+              title: '备注',
+              dataIndex: 'note',
+              render: (value: string, _, index) => (
+                <Input
+                  value={value}
+                  onChange={(e) => {
+                    const next = [...inspectItems]
+                    next[index] = { ...next[index], note: e.target.value }
+                    setInspectItems(next)
+                  }}
+                />
+              ),
+            },
+          ]}
+        />
+        <Form layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item label="贵重物品清单">
+            <Input.TextArea rows={2} value={valuables} onChange={(e) => setValuables(e.target.value)} />
           </Form.Item>
         </Form>
       </Modal>

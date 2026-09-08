@@ -1,7 +1,7 @@
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { Button, Card, Form, Input, Typography, message } from 'antd'
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore, isAuthenticated } from '@/stores/auth'
 
 export default function LoginPage() {
@@ -54,6 +54,9 @@ export default function LoginPage() {
             登录
           </Button>
         </Form>
+        <Typography.Paragraph style={{ textAlign: 'center', marginTop: 16, marginBottom: 0 }}>
+          还没有门店？ <Link to="/register">免费注册</Link>
+        </Typography.Paragraph>
       </Card>
     </div>
   )

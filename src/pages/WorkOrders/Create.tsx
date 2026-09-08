@@ -1,5 +1,5 @@
-import { ArrowLeftOutlined } from '@ant-design/icons'
-import { Button, Card, Form, Input, InputNumber, Select, Space, message } from 'antd'
+import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, message } from 'antd'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, unwrap } from '@/services/api'
@@ -8,10 +8,12 @@ import type { Customer, PageResult, Vehicle } from '@/types/api'
 export default function WorkOrderCreatePage() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
+  const [vehicleForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [customerId, setCustomerId] = useState<number | null>(null)
+  const [vehicleOpen, setVehicleOpen] = useState(false)
 
   useEffect(() => {
     api.get('/api/v1/customers', { params: { page: 1, page_size: 100 } }).then((res) => {
@@ -25,6 +27,25 @@ export default function WorkOrderCreatePage() {
     form.setFieldValue('vehicle_id', undefined)
     const res = await api.get(`/api/v1/customers/${cid}/vehicles`)
     setVehicles(unwrap<Vehicle[]>(res))
+  }
+
+  const addVehicle = async () => {
+    if (!customerId) return
+    const values = await vehicleForm.validateFields()
+    try {
+      const res = await api.post('/api/v1/customers/vehicles', {
+        ...values,
+        customer_id: customerId,
+      })
+      const vehicle = unwrap<Vehicle>(res)
+      message.success('车辆已添加')
+      setVehicleOpen(false)
+      vehicleForm.resetFields()
+      await loadVehicles(customerId)
+      form.setFieldValue('vehicle_id', vehicle.id)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '添加失败')
+    }
   }
 
   const onFinish = async (values: Record<string, unknown>) => {
@@ -60,15 +81,27 @@ export default function WorkOrderCreatePage() {
             onChange={loadVehicles}
           />
         </Form.Item>
-        <Form.Item name="vehicle_id" label="车辆" rules={[{ required: true, message: '请选择车辆' }]}>
-          <Select
-            placeholder={customerId ? '选择车辆' : '请先选择客户'}
-            disabled={!customerId}
-            options={vehicles.map((v) => ({
-              value: v.id,
-              label: `${v.plate_number}${v.brand ? ` - ${v.brand}` : ''}`,
-            }))}
-          />
+        <Form.Item label="车辆" required>
+          <Space.Compact style={{ width: '100%' }}>
+            <Form.Item name="vehicle_id" noStyle rules={[{ required: true, message: '请选择车辆' }]}>
+              <Select
+                style={{ width: '100%' }}
+                placeholder={customerId ? '选择车辆' : '请先选择客户'}
+                disabled={!customerId}
+                options={vehicles.map((v) => ({
+                  value: v.id,
+                  label: `${v.plate_number}${v.brand ? ` - ${v.brand}` : ''}`,
+                }))}
+              />
+            </Form.Item>
+            <Button
+              icon={<PlusOutlined />}
+              disabled={!customerId}
+              onClick={() => setVehicleOpen(true)}
+            >
+              新建
+            </Button>
+          </Space.Compact>
         </Form.Item>
         <Form.Item name="mileage_in" label="进店里程(km)">
           <InputNumber min={0} style={{ width: '100%' }} />
@@ -98,6 +131,23 @@ export default function WorkOrderCreatePage() {
           <Button onClick={() => navigate('/work-orders')}>取消</Button>
         </Space>
       </Form>
+
+      <Modal title="新建车辆" open={vehicleOpen} onOk={addVehicle} onCancel={() => setVehicleOpen(false)} destroyOnClose>
+        <Form form={vehicleForm} layout="vertical">
+          <Form.Item name="plate_number" label="车牌号" rules={[{ required: true }]}>
+            <Input placeholder="京A12345" />
+          </Form.Item>
+          <Form.Item name="brand" label="品牌">
+            <Input />
+          </Form.Item>
+          <Form.Item name="series" label="车系">
+            <Input />
+          </Form.Item>
+          <Form.Item name="mileage" label="里程(km)">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   )
 }

@@ -5,6 +5,9 @@ import {
   InboxOutlined,
   BarChartOutlined,
   SettingOutlined,
+  ToolOutlined,
+  ShopOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 import { Layout, Menu, Typography, Dropdown, Space, theme } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -17,7 +20,10 @@ const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '首页看板' },
   { key: '/work-orders', icon: <FileTextOutlined />, label: '工单管理' },
   { key: '/customers', icon: <TeamOutlined />, label: '客户管理' },
+  { key: '/services', icon: <ToolOutlined />, label: '服务项目' },
   { key: '/inventory', icon: <InboxOutlined />, label: '库存管理' },
+  { key: '/suppliers', icon: <ShopOutlined />, label: '供应商' },
+  { key: '/payments', icon: <DollarOutlined />, label: '收退款' },
   { key: '/reports', icon: <BarChartOutlined />, label: '经营报表' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
