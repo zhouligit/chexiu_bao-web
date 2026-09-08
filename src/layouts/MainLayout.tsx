@@ -9,7 +9,7 @@ import {
   ShopOutlined,
   DollarOutlined,
 } from '@ant-design/icons'
-import { Layout, Menu, Typography, Dropdown, Space, theme } from 'antd'
+import { Layout, Menu, Typography, Dropdown, Space, Alert, Button, theme } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import type { MenuProps } from 'antd'
 import { useAuthStore } from '@/stores/auth'
@@ -33,6 +33,7 @@ export default function MainLayout() {
   const location = useLocation()
   const logout = useAuthStore((s) => s.logout)
   const user = useAuthStore((s) => s.user)
+  const subscription = user?.subscription
   const { token } = theme.useToken()
 
   const userMenu: MenuProps['items'] = [
@@ -77,6 +78,19 @@ export default function MainLayout() {
           </Dropdown>
         </Header>
         <Content style={{ margin: 24 }}>
+          {subscription?.message && (
+            <Alert
+              type={subscription.can_write ? 'warning' : 'error'}
+              showIcon
+              message={subscription.message}
+              action={
+                <Button size="small" onClick={() => navigate('/settings', { state: { tab: 'subscription' } })}>
+                  查看套餐
+                </Button>
+              }
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Outlet />
         </Content>
       </Layout>

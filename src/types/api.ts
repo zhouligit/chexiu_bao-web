@@ -1,3 +1,7 @@
+import type { SubscriptionInfo } from '@/types/subscription'
+
+export type { SubscriptionInfo } from '@/types/subscription'
+
 export interface ApiResponse<T = unknown> {
   code: number
   message: string
@@ -17,6 +21,7 @@ export interface UserInfo {
     name: string
     code?: string
   }
+  subscription?: SubscriptionInfo
 }
 
 export interface LoginResult {

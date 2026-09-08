@@ -1,11 +1,13 @@
 import { PlusOutlined } from '@ant-design/icons'
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, message } from 'antd'
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { api, unwrap } from '@/services/api'
 import type { StoreInfo, UserListItem } from '@/types/api'
 import type { WorkBay } from '@/types/workBay'
 import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
+import SubscriptionSettings from '@/pages/Settings/Subscription'
 
 const ROLE_OPTIONS = [
   { value: 'manager', label: '店长' },
@@ -310,12 +312,16 @@ function WorkBaySettings() {
 }
 
 export default function SettingsPage() {
+  const location = useLocation()
+  const defaultTab = (location.state as { tab?: string } | null)?.tab || 'store'
   return (
     <Tabs
+      defaultActiveKey={defaultTab}
       items={[
         { key: 'store', label: '门店信息', children: <StoreSettings /> },
         { key: 'users', label: '员工管理', children: <UserSettings /> },
         { key: 'work-bays', label: '工位管理', children: <WorkBaySettings /> },
+        { key: 'subscription', label: '订阅套餐', children: <SubscriptionSettings /> },
       ]}
     />
   )
