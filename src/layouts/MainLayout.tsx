@@ -11,21 +11,21 @@ import {
 } from '@ant-design/icons'
 import { Layout, Menu, Typography, Dropdown, Space, Alert, Button, theme } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import type { MenuProps } from 'antd'
 import { useAuthStore } from '@/stores/auth'
+import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
 
-const menuItems = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: '首页看板' },
-  { key: '/work-orders', icon: <FileTextOutlined />, label: '工单管理' },
-  { key: '/customers', icon: <TeamOutlined />, label: '客户管理' },
-  { key: '/services', icon: <ToolOutlined />, label: '服务项目' },
-  { key: '/inventory', icon: <InboxOutlined />, label: '库存管理' },
-  { key: '/suppliers', icon: <ShopOutlined />, label: '供应商' },
-  { key: '/payments', icon: <DollarOutlined />, label: '收退款' },
-  { key: '/reports', icon: <BarChartOutlined />, label: '经营报表' },
-  { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
+const MENU_DEF: { key: string; icon: React.ReactNode; label: string; permission: string }[] = [
+  { key: '/dashboard', icon: <DashboardOutlined />, label: '首页看板', permission: 'menu:dashboard' },
+  { key: '/work-orders', icon: <FileTextOutlined />, label: '工单管理', permission: 'menu:work_orders' },
+  { key: '/customers', icon: <TeamOutlined />, label: '客户管理', permission: 'menu:customers' },
+  { key: '/services', icon: <ToolOutlined />, label: '服务项目', permission: 'menu:services' },
+  { key: '/inventory', icon: <InboxOutlined />, label: '库存管理', permission: 'menu:inventory' },
+  { key: '/suppliers', icon: <ShopOutlined />, label: '供应商', permission: 'menu:suppliers' },
+  { key: '/payments', icon: <DollarOutlined />, label: '收退款', permission: 'menu:payments' },
+  { key: '/reports', icon: <BarChartOutlined />, label: '经营报表', permission: 'menu:reports' },
+  { key: '/settings', icon: <SettingOutlined />, label: '系统设置', permission: 'menu:settings' },
 ]
 
 export default function MainLayout() {
@@ -35,12 +35,18 @@ export default function MainLayout() {
   const user = useAuthStore((s) => s.user)
   const subscription = user?.subscription
   const { token } = theme.useToken()
+  const menuItems: MenuProps['items'] = MENU_DEF.filter((item) =>
+    user?.role === 'owner' || (user?.permissions ?? []).includes(item.permission),
+  ).map(({ key, icon, label }) => ({ key, icon, label }))
 
   const userMenu: MenuProps['items'] = [
     { key: 'logout', label: '退出登录', onClick: () => { logout(); navigate('/login') } },
   ]
 
-  const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '/dashboard'
+  const selectedKey =
+    MENU_DEF.find((item) => location.pathname.startsWith(item.key))?.key ||
+    menuItems?.[0]?.key?.toString() ||
+    '/dashboard'
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

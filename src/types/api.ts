@@ -8,6 +8,12 @@ export interface ApiResponse<T = unknown> {
   data: T
 }
 
+export interface RoleBrief {
+  id?: number
+  slug: string
+  name: string
+}
+
 export interface UserInfo {
   id: number
   store_id: number
@@ -15,6 +21,9 @@ export interface UserInfo {
   name: string
   phone?: string
   role: string
+  role_info?: RoleBrief
+  permissions?: string[]
+  data_policy?: Record<string, unknown>
   avatar_url?: string
   store?: {
     id: number
@@ -43,6 +52,35 @@ export interface StoreInfo {
   created_at: string
 }
 
+export interface StoreRoleListItem {
+  id: number
+  store_id: number
+  slug: string
+  name: string
+  is_system: boolean
+  user_count: number
+  permission_count: number
+}
+
+export interface PermissionCatalogItem {
+  id: number
+  code: string
+  module: string
+  name: string
+  sort: number
+  is_sensitive: boolean
+}
+
+export interface StoreRoleDetail {
+  id: number
+  store_id: number
+  slug: string
+  name: string
+  is_system: boolean
+  data_policy: Record<string, unknown>
+  permission_codes: string[]
+}
+
 export interface UserListItem {
   id: number
   store_id: number
@@ -50,6 +88,8 @@ export interface UserListItem {
   name: string
   phone?: string
   role: string
+  role_id?: number
+  role_name?: string
   status: number
   last_login_at?: string
   created_at: string

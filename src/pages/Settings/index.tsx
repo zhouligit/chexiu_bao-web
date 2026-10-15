@@ -8,14 +8,9 @@ import type { StoreInfo, UserListItem } from '@/types/api'
 import type { WorkBay } from '@/types/workBay'
 import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
 import SubscriptionSettings from '@/pages/Settings/Subscription'
-
-const ROLE_OPTIONS = [
-  { value: 'manager', label: '店长' },
-  { value: 'receptionist', label: '前台' },
-  { value: 'technician', label: '技师' },
-  { value: 'warehouse', label: '仓管' },
-  { value: 'finance', label: '财务' },
-]
+import RoleSettings from '@/pages/Settings/Roles'
+import { useAnyPermission } from '@/hooks/usePermission'
+import type { StoreRoleListItem } from '@/types/api'
 
 const ROLE_LABELS: Record<string, string> = {
   owner: '老板',
@@ -81,6 +76,7 @@ function StoreSettings() {
 function UserSettings() {
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserListItem[]>([])
+  const [roles, setRoles] = useState<StoreRoleListItem[]>([])
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm()
 
@@ -98,6 +94,7 @@ function UserSettings() {
 
   useEffect(() => {
     fetchUsers()
+    api.get('/api/v1/roles').then((res) => setRoles(unwrap<StoreRoleListItem[]>(res))).catch(() => {})
   }, [])
 
   const handleCreate = async () => {
@@ -130,7 +127,9 @@ function UserSettings() {
     {
       title: '角色',
       dataIndex: 'role',
-      render: (role: string) => <Tag>{ROLE_LABELS[role] || role}</Tag>,
+      render: (_role: string, record) => (
+        <Tag>{record.role_name || ROLE_LABELS[record.role] || record.role}</Tag>
+      ),
     },
     {
       title: '状态',
@@ -160,7 +159,7 @@ function UserSettings() {
       <Table rowKey="id" loading={loading} columns={columns} dataSource={users} pagination={false} />
 
       <Modal title="新增员工" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} destroyOnClose>
-        <Form form={form} layout="vertical" initialValues={{ role: 'receptionist' }}>
+        <Form form={form} layout="vertical">
           <Form.Item name="username" label="用户名" rules={[{ required: true, min: 3 }]}>
             <Input />
           </Form.Item>
@@ -173,8 +172,12 @@ function UserSettings() {
           <Form.Item name="phone" label="手机">
             <Input />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
-            <Select options={ROLE_OPTIONS} />
+          <Form.Item name="role_id" label="角色" rules={[{ required: true, message: '请选择角色' }]}>
+            <Select
+              options={roles
+                .filter((r) => r.slug !== 'owner')
+                .map((r) => ({ value: r.id, label: r.name }))}
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -314,15 +317,19 @@ function WorkBaySettings() {
 export default function SettingsPage() {
   const location = useLocation()
   const defaultTab = (location.state as { tab?: string } | null)?.tab || 'store'
-  return (
-    <Tabs
-      defaultActiveKey={defaultTab}
-      items={[
-        { key: 'store', label: '门店信息', children: <StoreSettings /> },
-        { key: 'users', label: '员工管理', children: <UserSettings /> },
-        { key: 'work-bays', label: '工位管理', children: <WorkBaySettings /> },
-        { key: 'subscription', label: '订阅套餐', children: <SubscriptionSettings /> },
-      ]}
-    />
-  )
+  const canStore = useAnyPermission('settings:store')
+  const canUsers = useAnyPermission('settings:users', 'user:read')
+  const canWorkBay = useAnyPermission('settings:work_bay')
+  const canSubscription = useAnyPermission('settings:subscription')
+  const canRoles = useAnyPermission('role:read', 'role:manage')
+
+  const items = [
+    canStore ? { key: 'store', label: '门店信息', children: <StoreSettings /> } : null,
+    canUsers ? { key: 'users', label: '员工管理', children: <UserSettings /> } : null,
+    canRoles ? { key: 'roles', label: '角色权限', children: <RoleSettings /> } : null,
+    canWorkBay ? { key: 'work-bays', label: '工位管理', children: <WorkBaySettings /> } : null,
+    canSubscription ? { key: 'subscription', label: '订阅套餐', children: <SubscriptionSettings /> } : null,
+  ].filter(Boolean) as { key: string; label: string; children: React.ReactNode }[]
+
+  return <Tabs defaultActiveKey={defaultTab} items={items} />
 }
