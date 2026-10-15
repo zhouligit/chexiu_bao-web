@@ -10,7 +10,8 @@ import type { WorkBay } from '@/types/workBay'
 import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
 import SubscriptionSettings from '@/pages/Settings/Subscription'
 import RoleSettings from '@/pages/Settings/Roles'
-import { useAnyPermission, usePermission } from '@/hooks/usePermission'
+import { DENY_USER_MANAGEMENT } from '@/constants/userAccess'
+import { useAnyPermission } from '@/hooks/usePermission'
 import type { StoreRoleListItem } from '@/types/api'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -100,7 +101,7 @@ function UserSettings() {
     api
       .get('/api/v1/users/access')
       .then((res) => setAccess(unwrap<UserManagementAccess>(res)))
-      .catch(() => setAccess(null))
+      .catch(() => setAccess(DENY_USER_MANAGEMENT))
   }, [fetchMe])
 
   useEffect(() => {
@@ -172,7 +173,7 @@ function UserSettings() {
   }
 
   if (!access) {
-    return <Card title="员工管理" loading />
+    return <Card title="员工管理" loading={!access} />
   }
 
   return (
@@ -355,7 +356,7 @@ export default function SettingsPage() {
     api
       .get('/api/v1/users/access')
       .then((res) => setUserAccess(unwrap<UserManagementAccess>(res)))
-      .catch(() => setUserAccess(null))
+      .catch(() => setUserAccess(DENY_USER_MANAGEMENT))
   }, [fetchMe])
   const canStore = useAnyPermission('settings:store')
   const canUsers = Boolean(userAccess?.can_open_management)
