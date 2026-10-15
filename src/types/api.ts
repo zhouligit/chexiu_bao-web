@@ -81,6 +81,16 @@ export interface StoreRoleDetail {
   permission_codes: string[]
 }
 
+export interface UserManagementAccess {
+  role_slug: string
+  role_name: string
+  can_open_management: boolean
+  can_list: boolean
+  can_create: boolean
+  can_update: boolean
+  can_delete: boolean
+}
+
 export interface UserListItem {
   id: number
   store_id: number

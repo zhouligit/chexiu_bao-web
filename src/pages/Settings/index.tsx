@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useLocation } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { api, unwrap } from '@/services/api'
-import type { StoreInfo, UserListItem } from '@/types/api'
+import type { StoreInfo, UserListItem, UserManagementAccess } from '@/types/api'
 import type { WorkBay } from '@/types/workBay'
 import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
 import SubscriptionSettings from '@/pages/Settings/Subscription'
@@ -76,9 +76,7 @@ function StoreSettings() {
 
 function UserSettings() {
   const fetchMe = useAuthStore((s) => s.fetchMe)
-  const canAccessUsers = usePermission('settings:users')
-  const canCreateUser = usePermission('user:create') && canAccessUsers
-  const canUpdateUser = usePermission('user:update')
+  const [access, setAccess] = useState<UserManagementAccess | null>(null)
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserListItem[]>([])
   const [roles, setRoles] = useState<StoreRoleListItem[]>([])
@@ -99,15 +97,19 @@ function UserSettings() {
 
   useEffect(() => {
     fetchMe().catch(() => {})
+    api
+      .get('/api/v1/users/access')
+      .then((res) => setAccess(unwrap<UserManagementAccess>(res)))
+      .catch(() => setAccess(null))
   }, [fetchMe])
 
   useEffect(() => {
-    if (!canAccessUsers) return
+    if (!access?.can_open_management) return
     fetchUsers()
-    if (canCreateUser) {
+    if (access.can_create) {
       api.get('/api/v1/roles').then((res) => setRoles(unwrap<StoreRoleListItem[]>(res))).catch(() => {})
     }
-  }, [canAccessUsers, canCreateUser])
+  }, [access])
 
   const handleCreate = async () => {
     const values = await form.validateFields()
@@ -149,7 +151,7 @@ function UserSettings() {
       render: (status: number, record) => (
         <Switch
           checked={status === 1}
-          disabled={record.role === 'owner' || !canUpdateUser}
+          disabled={record.role === 'owner' || !access?.can_update}
           onChange={() => toggleStatus(record)}
           checkedChildren="启用"
           unCheckedChildren="禁用"
@@ -159,19 +161,25 @@ function UserSettings() {
     { title: '最后登录', dataIndex: 'last_login_at', render: (v) => v || '-' },
   ]
 
-  if (!canAccessUsers) {
+  if (access && !access.can_open_management) {
     return (
       <Card title="员工管理">
-        <p style={{ margin: 0, color: '#999' }}>当前账号无权管理员工，如需派工请在工单页选择技师。</p>
+        <p style={{ margin: 0, color: '#999' }}>
+          当前角色「{access.role_name}」无权管理员工，如需派工请在工单页选择技师。
+        </p>
       </Card>
     )
+  }
+
+  if (!access) {
+    return <Card title="员工管理" loading />
   }
 
   return (
     <Card
       title="员工管理"
       extra={
-        canCreateUser ? (
+        access.can_create ? (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
             新增员工
           </Button>
@@ -340,12 +348,17 @@ export default function SettingsPage() {
   const location = useLocation()
   const fetchMe = useAuthStore((s) => s.fetchMe)
   const defaultTab = (location.state as { tab?: string } | null)?.tab || 'store'
+  const [userAccess, setUserAccess] = useState<UserManagementAccess | null>(null)
 
   useEffect(() => {
     fetchMe().catch(() => {})
+    api
+      .get('/api/v1/users/access')
+      .then((res) => setUserAccess(unwrap<UserManagementAccess>(res)))
+      .catch(() => setUserAccess(null))
   }, [fetchMe])
   const canStore = useAnyPermission('settings:store')
-  const canUsers = useAnyPermission('settings:users')
+  const canUsers = Boolean(userAccess?.can_open_management)
   const canWorkBay = useAnyPermission('settings:work_bay')
   const canSubscription = useAnyPermission('settings:subscription')
   const canRoles = useAnyPermission('role:read', 'role:manage')
