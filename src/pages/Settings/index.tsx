@@ -9,7 +9,7 @@ import type { WorkBay } from '@/types/workBay'
 import { WORK_BAY_STATUS_LABELS, WORK_BAY_STATUS_OPTIONS, WORK_BAY_TYPE_OPTIONS } from '@/types/workBay'
 import SubscriptionSettings from '@/pages/Settings/Subscription'
 import RoleSettings from '@/pages/Settings/Roles'
-import { useAnyPermission } from '@/hooks/usePermission'
+import { useAnyPermission, usePermission } from '@/hooks/usePermission'
 import type { StoreRoleListItem } from '@/types/api'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -74,6 +74,9 @@ function StoreSettings() {
 }
 
 function UserSettings() {
+  const canAccessUsers = usePermission('settings:users')
+  const canCreateUser = usePermission('user:create')
+  const canUpdateUser = usePermission('user:update')
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserListItem[]>([])
   const [roles, setRoles] = useState<StoreRoleListItem[]>([])
@@ -93,9 +96,12 @@ function UserSettings() {
   }
 
   useEffect(() => {
+    if (!canAccessUsers) return
     fetchUsers()
-    api.get('/api/v1/roles').then((res) => setRoles(unwrap<StoreRoleListItem[]>(res))).catch(() => {})
-  }, [])
+    if (canCreateUser) {
+      api.get('/api/v1/roles').then((res) => setRoles(unwrap<StoreRoleListItem[]>(res))).catch(() => {})
+    }
+  }, [canAccessUsers, canCreateUser])
 
   const handleCreate = async () => {
     const values = await form.validateFields()
@@ -137,7 +143,7 @@ function UserSettings() {
       render: (status: number, record) => (
         <Switch
           checked={status === 1}
-          disabled={record.role === 'owner'}
+          disabled={record.role === 'owner' || !canUpdateUser}
           onChange={() => toggleStatus(record)}
           checkedChildren="启用"
           unCheckedChildren="禁用"
@@ -147,13 +153,23 @@ function UserSettings() {
     { title: '最后登录', dataIndex: 'last_login_at', render: (v) => v || '-' },
   ]
 
+  if (!canAccessUsers) {
+    return (
+      <Card title="员工管理">
+        <p style={{ margin: 0, color: '#999' }}>当前账号无权管理员工，如需派工请在工单页选择技师。</p>
+      </Card>
+    )
+  }
+
   return (
     <Card
       title="员工管理"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
-          新增员工
-        </Button>
+        canCreateUser ? (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+            新增员工
+          </Button>
+        ) : null
       }
     >
       <Table rowKey="id" loading={loading} columns={columns} dataSource={users} pagination={false} />
@@ -318,7 +334,7 @@ export default function SettingsPage() {
   const location = useLocation()
   const defaultTab = (location.state as { tab?: string } | null)?.tab || 'store'
   const canStore = useAnyPermission('settings:store')
-  const canUsers = useAnyPermission('settings:users', 'user:read')
+  const canUsers = useAnyPermission('settings:users')
   const canWorkBay = useAnyPermission('settings:work_bay')
   const canSubscription = useAnyPermission('settings:subscription')
   const canRoles = useAnyPermission('role:read', 'role:manage')

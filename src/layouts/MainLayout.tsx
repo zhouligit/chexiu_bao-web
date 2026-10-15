@@ -10,6 +10,7 @@ import {
   DollarOutlined,
 } from '@ant-design/icons'
 import { Layout, Menu, Typography, Dropdown, Space, Alert, Button, theme } from 'antd'
+import { useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import type { MenuProps } from 'antd'
@@ -32,7 +33,12 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const logout = useAuthStore((s) => s.logout)
+  const fetchMe = useAuthStore((s) => s.fetchMe)
   const user = useAuthStore((s) => s.user)
+
+  useEffect(() => {
+    fetchMe().catch(() => {})
+  }, [fetchMe])
   const subscription = user?.subscription
   const { token } = theme.useToken()
   const menuItems: MenuProps['items'] = MENU_DEF.filter((item) =>
