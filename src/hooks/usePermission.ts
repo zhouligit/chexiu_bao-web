@@ -1,30 +1,19 @@
 import { useAuthStore } from '@/stores/auth'
 
+/** 仅以服务端下发的 permissions 为准（登录/me 已包含 owner 的全量权限码） */
 export function usePermissions() {
   return useAuthStore((s) => s.user?.permissions ?? [])
 }
 
-function effectivePermissions(user: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>) {
-  if (user.role === 'owner') return null
-  const perms = user.permissions
-  if (!perms?.length) return []
-  return perms
-}
-
 export function usePermission(code: string) {
-  const user = useAuthStore((s) => s.user)
-  if (!user) return false
-  if (user.role === 'owner') return true
-  const perms = effectivePermissions(user)
-  return perms !== null && perms.includes(code)
+  const permissions = useAuthStore((s) => s.user?.permissions)
+  if (!permissions?.length) return false
+  return permissions.includes(code)
 }
 
 export function useAnyPermission(...codes: string[]) {
-  const user = useAuthStore((s) => s.user)
-  if (!user) return false
-  if (user.role === 'owner') return true
-  const perms = effectivePermissions(user)
-  if (!perms?.length) return false
-  const set = new Set(perms)
+  const permissions = useAuthStore((s) => s.user?.permissions)
+  if (!permissions?.length) return false
+  const set = new Set(permissions)
   return codes.some((c) => set.has(c))
 }

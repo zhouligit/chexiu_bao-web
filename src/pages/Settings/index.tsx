@@ -1,6 +1,7 @@
 import { PlusOutlined } from '@ant-design/icons'
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, message } from 'antd'
 import { useEffect, useState } from 'react'
+import { useAuthStore } from '@/stores/auth'
 import { useLocation } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { api, unwrap } from '@/services/api'
@@ -74,8 +75,9 @@ function StoreSettings() {
 }
 
 function UserSettings() {
+  const fetchMe = useAuthStore((s) => s.fetchMe)
   const canAccessUsers = usePermission('settings:users')
-  const canCreateUser = usePermission('user:create')
+  const canCreateUser = usePermission('user:create') && canAccessUsers
   const canUpdateUser = usePermission('user:update')
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserListItem[]>([])
@@ -94,6 +96,10 @@ function UserSettings() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    fetchMe().catch(() => {})
+  }, [fetchMe])
 
   useEffect(() => {
     if (!canAccessUsers) return
@@ -332,7 +338,12 @@ function WorkBaySettings() {
 
 export default function SettingsPage() {
   const location = useLocation()
+  const fetchMe = useAuthStore((s) => s.fetchMe)
   const defaultTab = (location.state as { tab?: string } | null)?.tab || 'store'
+
+  useEffect(() => {
+    fetchMe().catch(() => {})
+  }, [fetchMe])
   const canStore = useAnyPermission('settings:store')
   const canUsers = useAnyPermission('settings:users')
   const canWorkBay = useAnyPermission('settings:work_bay')

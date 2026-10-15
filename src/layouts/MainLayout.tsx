@@ -42,7 +42,7 @@ export default function MainLayout() {
   const subscription = user?.subscription
   const { token } = theme.useToken()
   const menuItems: MenuProps['items'] = MENU_DEF.filter((item) =>
-    user?.role === 'owner' || (user?.permissions ?? []).includes(item.permission),
+    (user?.permissions ?? []).includes(item.permission),
   ).map(({ key, icon, label }) => ({ key, icon, label }))
 
   const userMenu: MenuProps['items'] = [
